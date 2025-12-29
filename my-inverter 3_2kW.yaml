@@ -8,21 +8,14 @@ substitutions:
   inverter_rx_pin: GPIO16
   #GPIO4
   inverter_voltage_offset: "0"
-#  pzem_tx_pin: GPIO1
-# pzem_rx_pin: GPIO3
-#  pzem_voltage_offset: "1"
-#  pzem_current_offset: "0.04"
   update_interval: 10s # Minimum 10s recommended to avoid duplicate command errors
   select_skip_updates: "6"
   read_skip_updates: "6"
- # pzem_update_interval: 6s # Needs to be 1/5 of update interval because of smoothing filter on pzem readings
 
 esphome: 
   name: "${device_name}"
   friendly_name: "${node_name}"
   comment: "Monitor and control a solar inverter"
-  includes:
-    - "helpers"
   project:
     name: "esphome.powmr-hybrid-inverter"
     version: 1.3.5
@@ -30,7 +23,12 @@ esphome:
 esp32:
   board: esp32dev
   framework:
-    type: arduino
+    type: esp-idf
+    advanced:
+      disable_libc_locks_in_iram: true
+      disable_vfs_support_termios: true
+      disable_vfs_support_select: true
+      disable_vfs_support_dir: true
 
 # Enable Home Assistant API
 api:
@@ -52,24 +50,10 @@ wifi:
 
 captive_portal:
 
-packages:
-  # You can replace next 2 lines with your common configs for all devices
-  common_system: !include includes/common_system.yaml
-  common_sensors: !include includes/common_sensors.yaml
-
-#packages: 
-#  pzem: !include {
-#    file: modules/pzem.yaml
-# }
-#For debug:
-#debug:
-#  update_interval: 10s
-
 #sensor:
 #  - platform: debug
 #    free:
 #      name: "Heap Free"
-
 logger:
   id: uart_logger
   baud_rate: 0
@@ -115,28 +99,9 @@ modbus_controller:
 
 switch:
   - platform: restart
-    name: "Invertor Restart"
+    name: "Restart"
 sensor:
- # - platform: template
- #   name: "Grid Power VA"
- #   unit_of_measurement: "W"
- #   device_class: power
- #   state_class: measurement
- #   accuracy_decimals: 0
- #   update_interval: ${update_interval}
- #   lambda: |-
- #     return id(pzem_grid_current).state * id(pzem_grid_voltage).state;
-
- # - platform: template
- #   name: "Grid Power VA*PF"
- #   unit_of_measurement: "W"
- #   device_class: power
- #   state_class: measurement
- #   accuracy_decimals: 0
- #   update_interval: ${update_interval}
- #   lambda: |-
- #     return id(pzem_grid_current).state * id(pzem_grid_voltage).state * id(pzem_grid_power_factor).state;
-      
+ 
   ###################################
   # Read first group (14 registers) #
   ###################################
@@ -144,6 +109,7 @@ sensor:
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
     name: "Grid Voltage"
+    id: grid_voltage
     address: 4502
     register_type: holding
     force_new_range: true
@@ -155,11 +121,13 @@ sensor:
     state_class: measurement
     accuracy_decimals: 1
     lambda: |-
-      return swapBytes(x);
-    filters:
-      - multiply: 0.1
-#      - offset: ${inverter_voltage_offset}
-#      - heartbeat: 10s
+      uint16_t raw = (uint16_t)x;
+      uint16_t v = (raw >> 8) | ((raw & 0xFF) << 8);
+      float value = v * 0.1;
+      if (!id(grid_active).has_state() || !id(grid_active).state) {
+        return 0.0f;
+      }
+      return value;
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -172,9 +140,9 @@ sensor:
     state_class: measurement
     accuracy_decimals: 1
     lambda: |-
-      return swapBytes(x);
-    filters:
-      - multiply: 0.1
+      uint16_t raw = (uint16_t)x;
+      uint16_t v = (raw >> 8) | ((raw & 0xFF) << 8);
+      return v * 0.1;
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -187,9 +155,9 @@ sensor:
     state_class: measurement
     accuracy_decimals: 1
     lambda: |-
-      return swapBytes(x);
-    filters:
-      - multiply: 0.1
+      uint16_t raw = (uint16_t)x;
+      uint16_t v = (raw >> 8) | ((raw & 0xFF) << 8);
+      return v * 0.1;
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -202,7 +170,8 @@ sensor:
     state_class: measurement
     accuracy_decimals: 1
     lambda: |-
-     return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -216,9 +185,9 @@ sensor:
     state_class: measurement
     accuracy_decimals: 2
     lambda: |-
-      return swapBytes(x);
-    filters:
-      - multiply: 0.1
+      uint16_t raw = (uint16_t)x;
+      uint16_t v = (raw >> 8) | ((raw & 0xFF) << 8);
+      return v * 0.1;
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -231,7 +200,8 @@ sensor:
     value_type: U_WORD
     state_class: measurement
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -245,7 +215,8 @@ sensor:
     state_class: measurement
     accuracy_decimals: 1
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -259,7 +230,8 @@ sensor:
     state_class: measurement
     accuracy_decimals: 1
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: template
     name: "Battery Current"
@@ -296,9 +268,9 @@ sensor:
     state_class: measurement
     accuracy_decimals: 1
     lambda: |-
-      return swapBytes(x);
-    filters:
-      - multiply: 0.1
+      uint16_t raw = (uint16_t)x;
+      uint16_t v = (raw >> 8) | ((raw & 0xFF) << 8);
+      return v * 0.1;
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -311,9 +283,9 @@ sensor:
     state_class: measurement
     accuracy_decimals: 1
     lambda: |-
-      return swapBytes(x);
-    filters:
-      - multiply: 0.1
+      uint16_t raw = (uint16_t)x;
+      uint16_t v = (raw >> 8) | ((raw & 0xFF) << 8);
+      return v * 0.1;
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -327,7 +299,8 @@ sensor:
     state_class: measurement
     accuracy_decimals: 0
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -341,7 +314,8 @@ sensor:
     state_class: measurement
     accuracy_decimals: 0
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
 
   - platform: template
@@ -384,7 +358,8 @@ sensor:
     device_class: power_factor
     state_class: measurement
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -396,254 +371,250 @@ sensor:
     device_class: power_factor
     state_class: measurement
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   # ####################################
   # # Read second group (20 registers) #
   # ####################################
 
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4516"
-    address: 4516
-    force_new_range: true
-    skip_updates: ${read_skip_updates}
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4516"
+#    address: 4516
+#    force_new_range: true
+#    skip_updates: ${read_skip_updates}
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4517"
-    address: 4517
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4517"
+#    address: 4517
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4518"
-    address: 4518
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4518"
+#    address: 4518
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4519"
-    address: 4519
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4519"
+#    address: 4519
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
   
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4520"
-    address: 4520
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4520"
+#    address: 4520
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4521"
-    address: 4521
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4521"
+#    address: 4521
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4522"
-    address: 4522
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4522"
+#    address: 4522
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4523"
-    address: 4523
-    register_type: holding
-    value_type: U_WORD
+ # - platform: modbus_controller
+ #   modbus_controller_id: smg_inverter
+ #   name: "Unknown4523"
+ #   address: 4523
+ #   register_type: holding
+ #   value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4524"
-    address: 4524
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4524"
+#    address: 4524
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4525"
-    address: 4525
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4525"
+#    address: 4525
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4526"
-    address: 4526
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4526"
+#    address: 4526
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4527"
-    address: 4527
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4527"
+#    address: 4527
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4528"
-    address: 4528
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4528"
+#    address: 4528
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4529"
-    address: 4529
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4529"
+#    address: 4529
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4530"
-    address: 4530
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4530"
+#    address: 4530
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4531"
-    address: 4531
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4531"
+#    address: 4531
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4532"
-    address: 4532
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4532"
+#    address: 4532
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4533"
-    address: 4533
-    register_type: holding
-    value_type: U_WORD
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Unknown4533"
+#    address: 4533
+#    register_type: holding
+#    value_type: U_WORD
   #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
+#    device_class: power_factor
+#    state_class: measurement
+#    lambda: |-
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4534"
-    address: 4534
-    register_type: holding
-    value_type: U_WORD
-  #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
-
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4535"
-    address: 4535
-    register_type: holding
-    value_type: U_WORD
-  #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
   # 4535 -> binary
 
   # 4536 -> text
@@ -658,11 +629,9 @@ sensor:
 #    address: 4536
 #    register_type: holding
 #    value_type: U_WORD
-  #  unit_of_measurement: "%"
-#    device_class: power_factor
-#    state_class: measurement
 #    lambda: |-
-#      return swapBytes(x);
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
 #  - platform: modbus_controller
 #    modbus_controller_id: smg_inverter
@@ -670,11 +639,9 @@ sensor:
 #    address: 4537
 #    register_type: holding
 #    value_type: U_WORD
-  #  unit_of_measurement: "%"
-#    device_class: power_factor
-#    state_class: measurement
 #    lambda: |-
-#      return swapBytes(x);
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
 
 #  - platform: modbus_controller
 #    modbus_controller_id: smg_inverter
@@ -682,11 +649,9 @@ sensor:
 #    address: 4538
 #    register_type: holding
 #    value_type: U_WORD
-  #  unit_of_measurement: "%"
-#    device_class: power_factor
-#    state_class: measurement
 #    lambda: |-
-#      return swapBytes(x);
+#      uint16_t raw = (uint16_t)x;
+#      return (raw >> 8) | ((raw & 0xFF) << 8);
   
   # #################################### 
   # # Read third group (22 registers)  #
@@ -706,7 +671,8 @@ sensor:
     device_class: power_factor
     state_class: measurement
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
    
 
   - platform: modbus_controller
@@ -719,7 +685,8 @@ sensor:
     device_class: power_factor
     state_class: measurement
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -731,36 +698,25 @@ sensor:
     device_class: power_factor
     state_class: measurement
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4539"
-    address: 4539
-    register_type: holding
-    value_type: U_WORD
-  #  unit_of_measurement: "%"
-    device_class: power_factor
-    state_class: measurement
-    lambda: |-
-      return swapBytes(x);
-
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Target Output Frequency"
-    accuracy_decimals: 0
-    entity_category: diagnostic
-    address: 4540
-    register_type: holding
-    value_type: U_WORD
-    unit_of_measurement: "Hz"
-    lambda: |-
-      uint16_t value = swapBytes(x);
-      switch (value) {
-        case 0: return std::uint16_t(50);
-        case 1: return std::uint16_t(60);
-        default: return x;
-      }
+#  - platform: modbus_controller
+#    modbus_controller_id: smg_inverter
+#    name: "Target Output Frequency"
+#    accuracy_decimals: 0
+#    entity_category: diagnostic
+#    address: 4540
+#    register_type: holding
+#    value_type: U_WORD
+#    unit_of_measurement: "Hz"
+#    lambda: |-
+#      uint16_t value = swapBytes(x);
+#      switch (value) {
+#        case 0: return std::uint16_t(50);
+#        case 1: return std::uint16_t(60);
+#        default: return x;
+#      }
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -772,7 +728,8 @@ sensor:
     value_type: U_WORD
     unit_of_measurement: "A"
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -784,7 +741,8 @@ sensor:
     value_type: U_WORD
     unit_of_measurement: "V"
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -796,7 +754,8 @@ sensor:
     value_type: U_WORD
     unit_of_measurement: "A"
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -810,7 +769,8 @@ sensor:
     value_type: U_WORD
     unit_of_measurement: "V"
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -824,7 +784,8 @@ sensor:
     value_type: U_WORD
     unit_of_measurement: "V"
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -838,7 +799,8 @@ sensor:
     value_type: U_WORD
     unit_of_measurement: "V"
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -852,7 +814,8 @@ sensor:
     value_type: U_WORD
     unit_of_measurement: "V"
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -866,7 +829,8 @@ sensor:
     value_type: U_WORD
     unit_of_measurement: "V"
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -880,7 +844,8 @@ sensor:
     value_type: U_WORD
     unit_of_measurement: "V"
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -891,7 +856,8 @@ sensor:
     register_type: holding
     value_type: U_WORD
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -902,7 +868,8 @@ sensor:
     register_type: holding
     value_type: U_WORD
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -913,34 +880,14 @@ sensor:
     register_type: holding
     value_type: U_WORD
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   # 4553 -> binary
 
   # 4554 -> binary
 
   # 4555 -> text
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4553"
-    accuracy_decimals: 0
-    entity_category: diagnostic
-    address: 4553
-    register_type: holding
-    value_type: U_WORD
-    lambda: |-
-      return swapBytes(x);
-
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Unknown4554"
-    accuracy_decimals: 0
-    entity_category: diagnostic
-    address: 4554
-    register_type: holding
-    value_type: U_WORD
-    lambda: |-
-      return swapBytes(x);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
@@ -951,23 +898,12 @@ sensor:
     register_type: holding
     value_type: U_WORD
     lambda: |-
-      return swapBytes(x);
-   
-  - platform: modbus_controller
-    modbus_controller_id: smg_inverter
-    name: "Temperature"
-    accuracy_decimals: 0
-    entity_category: diagnostic
-    address: 4556
-    register_type: holding
-    unit_of_measurement: "°C"
-    value_type: U_WORD
-    lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
-    name: "Temperature2"
+    name: "Temperature"
     accuracy_decimals: 0
     entity_category: diagnostic
     address: 4557
@@ -975,7 +911,8 @@ sensor:
     unit_of_measurement: "°C"
     value_type: U_WORD
     lambda: |-
-      return swapBytes(x);
+      uint16_t raw = (uint16_t)x;
+      return (raw >> 8) | ((raw & 0xFF) << 8);
 #text_sensor:
 #  - platform: modbus_controller
 #    modbus_controller_id: smg_inverter
@@ -1113,6 +1050,7 @@ binary_sensor:
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
     name: "Grid Active 4553 0x200"
+    id: grid_active
     address: 4553
     register_type: holding
     bitmask: 0x200
@@ -1127,6 +1065,7 @@ binary_sensor:
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
     name: "Grid Active 4553 0x2000"
+    id: grid_active2
     address: 4553
     register_type: holding
     bitmask: 0x2000
@@ -1141,6 +1080,7 @@ binary_sensor:
   - platform: modbus_controller
     modbus_controller_id: smg_inverter
     name: "On Battery"
+    id: inverter_on_battery
     address: 4554
     register_type: holding
     bitmask: 0x1
