@@ -28,7 +28,7 @@ All models that are supported by the [**WIFI-VM**](https://powmr.com/products/po
 - [**POW-HVM10.2M**](https://powmr.com/products/hybrid-inverter-charger-10200w-200vac-48vdc)
 
 ### Tested models
-
+- **pow-hvm3.2h-24v-n**
 - **POW-HVM3.2H-24V**
 - **POW-HVM6.2M-48V**
 
@@ -42,20 +42,11 @@ Looks like minimum heap size, that ensures stability, is near 6Kb. Although I st
 Also Ota upgrade might be failed due to absent of EEPROM memory for downloading update. In such case use USB or WEB firmare update.
 
 ## Usage
-1) Create new project subdirectory within your ESPHome configuration directory (let it be `powmr-inverter`, for example) 
-2) Copy the contents of the `src` repo folder to a newly created project directory.
-3) Now, the `main.yaml` file must be located under `<esphome_config>/powmr-inverter`
-4) Create file `powmr-inverter.yaml` in the esphome config directory root and copy contents of [example config](/examples/powmr-inverter.yaml)
-5) Edit substitutions & customize `powmr-inverter.yaml`. You can add contents of [common_system](/examples/common_system.yaml) & [common_sensors](/examples/common_sensors.yaml) to this file or include them separately following the example.
-6) Flash firmware to your ESP32
+1) download "my-inverter ****.yaml"
+2) Add new device in ESPHome builder and select import from file, select previosly downloaded *.yaml file (let it be `my-inverter 3_2kW.yaml`, for example) 
+3) Edit substitutions & customize your selected *.yaml file.
+4) Flash firmware to your ESP32
 
-
-## PZEM module
-In version 1.2, a [PZEM](https://esphome.io/components/sensor/pzem004t) module was added for measuring parameters of the input AC grid. If you do not wish to use it, comment out the include of the corresponding module in the [main.yaml](/src/main.yaml) file.
-
-## Inverter card
-For easy integration into Home Assistant, you can use the examples of inverter cards. 
-The following custom plugins are required: [sunsynk-power-flow-card](https://github.com/slipx06/sunsynk-power-flow-card), [stack-in-card](https://github.com/custom-cards/stack-in-card), [tabbed-card](https://github.com/kinghat/tabbed-card), [canary](https://github.com/jcwillox/lovelace-canary).
 
 ## Optimize modbus communications
 ESPHome reads sequential Modbus registers in one batch. If you have gaps in register addresses, you need to use the `register_count` parameter to skip N registers and continue the batch.
